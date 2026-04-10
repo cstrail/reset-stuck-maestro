@@ -1,49 +1,42 @@
 ---
 name: reset-stuck-maestro
-description: Resets provisioning when errored with another request already in process
+description: Resets stuck provisioning by cleaning up BPM and Maestro transaction states.
 ---
 
-**First run setup:**
-The script will automatically create a `.venv` virtual environment and install `oracledb` on first run.
+# CONTEXT
+This skill resolves "request already in process" errors by updating status flags in Oracle.
 
-Using wrapper script: `reset.sh` (auto-creates venv and runs scripts/reset_maestro.py)
+# COLUMN MAPPING (0-indexed)
+- 0: ticket_id (BPM Log - REQUIRED for bpm-cleanup)
+- 1: event_id (Internal - IGNORE)
+- 15: trans_id (Maestro Trans - REQUIRED for maestro-cleanup)
 
-To reset a provisioning already in process error in maestro:
+# WORKFLOW
 
-1. Ask user to input a 10 digit phonenumber if not provided in prompt
+### 1. Data Acquisition
+- **Constraint**: If 10-digit <phonenumber> is missing, prompt user.
+- **Action**: Run `./reset.sh query <phonenumber>`
 
-2. Run wrapper script to query results:
-   ```bash
-   ./reset.sh query <phonenumber>
-   ```
+### 2. Analysis & Extraction (CRITICAL)
+- Display results in a Markdown table.
+- **Mandatory Variable Extraction**: Identify and list values explicitly before proceeding:
+    - `TARGET_TICKET_IDS`: Unique values from Column 0.
+    - `TARGET_TRANS_IDS`: Unique non-None values from Column 15.
+- **Warning**: Do NOT use Column 1 for any cleanup action.
 
-3. Print out a formatted table with all the results for viewing
+### 3. BPM Cleanup Phase
+- **Pre-condition**: Must have `TARGET_TICKET_IDS`.
+- **User Confirmation**: Show: "I will run: `./reset.sh bpm-cleanup <ids>`"
+- **Action**: Upon "yes", execute and capture "rows updated" count.
 
-4. From results, extract (use these exact column positions - 0-based indexing):
-   - **ticket_id** - Unique values from column index 0, always including the provided phone number as a ticket_id
-   - **trans_id** - Unique non-None values from column index 15 (NOT index 1!)
-   
-   The query returns these columns in order:
-   - Index 0: ticket_id (from bpm_event_log) ← USE THIS for bpm cleanup
-   - Index 1: event_id (from bpm_event_log, bel.id) ← DO NOT USE
-   - Index 15: trans_id (from maestro_transactions, mt.id) ← USE THIS for maestro cleanup
-   
-   CRITICAL: Do NOT use event_id (index 1) for maestro cleanup! Use trans_id (index 15)!
+### 4. Maestro Cleanup Phase
+- **Pre-condition**: Must have `TARGET_TRANS_IDS`.
+- **User Confirmation**: Show: "I will run: `./reset.sh maestro-cleanup <ids>`"
+- **Action**: Upon "yes", execute and capture "rows updated" count.
 
-5. Let user know which ticket_ids and trans_ids have been selected
-
-6. **BPM Cleanup** - Present the intended query to user and get approval before running:
-   ```bash
-   ./reset.sh bpm-cleanup <ticket_id1,ticket_id2,...>
-   ```
-   This updates process_status to 'FAILURE' for ticket_ids where process_status is 'IN_PROGRESS' or 'RETRY'
-   Save rows updated for followup summary
-
-7. **Maestro Cleanup** - Present the intended query to user and get approval before running:
-   ```bash
-   ./reset.sh maestro-cleanup <trans_id1,trans_id2,...>
-   ```
-   This updates status to 'FAILURE', is_complete to 'Y', message to 'Manual completion'
-   Save rows updated for followup summary
-
-8. Provide user with a summary of all rows updated and status
+### 5. Final Summary
+- Provide a summary table:
+| Phase | IDs Processed | Rows Updated |
+| :--- | :--- | :--- |
+| BPM | ... | ... |
+| Maestro | ... | ... |
