@@ -2,9 +2,9 @@
 """Reset stuck maestro provisioning.
 
 Usage:
-    python reset_maestro.py query <phonenumber>
-    python reset_maestro.py bpm-cleanup <ticket_ids>
-    python reset_maestro.py maestro-cleanup <trans_ids>
+    python reset_maestro.py query <phonenumber> <environment>
+    python reset_maestro.py bpm-cleanup <ticket_ids> <environment>
+    python reset_maestro.py maestro-cleanup <trans_ids> <environment>
 """
 
 import sys
@@ -28,35 +28,47 @@ CONN_FILE = os.path.join(PARENT_DIR, "assets", "CONNECTIONS.md")
 QUERIES_FILE = os.path.join(PARENT_DIR, "assets", "QUERIES.md")
 
 
-def get_connection_config():
-    """Read connection config from CONNECTIONS.md file."""
+def get_connection_config(env):
+    """Read connection config from CONNECTIONS.md file for a specific environment."""
     config = {}
     if not os.path.exists(CONN_FILE):
         raise FileNotFoundError(f"Connection config not found: {CONN_FILE}")
 
+    env_header = f"### {env.upper()}"
+    found_env = False
+
     with open(CONN_FILE, "r") as f:
         for line in f:
             line = line.strip()
-            if line.startswith("- "):
-                parts = line[2:].split(":", 1)
-                if len(parts) == 2:
-                    key = parts[0].strip().lower()
-                    value = parts[1].strip()
-                    if key == "host":
-                        config["host"] = value
-                    elif key == "port":
-                        config["port"] = int(value)
-                    elif key == "service":
-                        config["service"] = value
-                    elif key == "username":
-                        config["user"] = value
-                    elif key == "pasword":
-                        config["password"] = value
+            if line == env_header:
+                found_env = True
+                continue
+            if found_env:
+                if line.startswith("### "):  # Reached next environment
+                    break
+                if line.startswith("- "):
+                    parts = line[2:].split(":", 1)
+                    if len(parts) == 2:
+                        key = parts[0].strip().lower()
+                        value = parts[1].strip()
+                        if key == "host":
+                            config["host"] = value
+                        elif key == "port":
+                            config["port"] = int(value)
+                        elif key == "service":
+                            config["service"] = value
+                        elif key == "username":
+                            config["user"] = value
+                        elif key == "password" or key == "pasword":
+                            config["password"] = value
+
+    if not found_env:
+        raise ValueError(f"Environment '{env}' not found in {CONN_FILE}")
 
     required = ["host", "port", "service", "user", "password"]
     missing = [k for k in required if k not in config]
     if missing:
-        raise ValueError(f"Missing connection config: {missing}")
+        raise ValueError(f"Missing connection config for {env}: {missing}")
 
     return config
 
@@ -71,54 +83,54 @@ def get_queries():
     return content
 
 
-def get_connection():
+def get_connection(env):
     """Create database connection using config from CONNECTIONS.md."""
-    config = get_connection_config()
+    config = get_connection_config(env)
     dsn = oracledb.makedsn(
         config["host"], config["port"], service_name=config["service"]
     )
     return oracledb.connect(user=config["user"], password=config["password"], dsn=dsn)
 
 
-def query_results(phonenumber):
+def query_results(phonenumber, env):
     """Query maestro results for a phone number."""
-    sql = """
-SELECT
-    bel.ticket_id AS ticket_id,
-    bel.id AS event_id, 
-    bel.bpm_process_name AS event, 
-    bel.process_status AS event_status, 
-    TO_CHAR(bel.start_time, 'YYYY-MM-DD HH:MI:SS') AS event_start, 
-    TO_CHAR(bel.end_time, 'YYYY-MM-DD HH:MI:SS') AS event_end,
-    replace(replace(bel.log_msg1,'[','_'),']','_') as log_msg1, 
-    replace(replace(bel.log_msg2,'[','_'),']','_') as log_msg2, 
-    replace(replace(bel.log_msg3,'[','_'),']','_') AS log_msg3, 
-    bel.bpm_process_id, 
-    bel.bpm_parent_process_id AS bpm_parent_id, 
-    bel.manual_task, 
-    bel.manual_task_id, 
-    bel.manual_task_reason, 
-    bel.server_host_name,
-    mt.id AS trans_id, 
-    mt.external_system AS source, 
-    mt.member_phone, 
-    mt.status AS trans_status, 
-    mt.environment
-FROM bpm_event_log bel
-LEFT OUTER JOIN maestro_transactions mt ON bel.MAESTRO_ID = mt.ID
-WHERE (mt.MEMBER_PHONE = :phone OR substr(bel.log_msg3, 5, 10) = :phone)
-ORDER BY bel.start_time DESC
-"""
-    conn = get_connection()
+    sql = f"""
+    SELECT
+        bel.ticket_id AS ticket_id,
+        bel.id AS event_id, 
+        bel.bpm_process_name AS event, 
+        bel.process_status AS event_status, 
+        TO_CHAR(bel.start_time, 'YYYY-MM-DD HH:MI:SS') AS event_start, 
+        TO_CHAR(bel.end_time, 'YYYY-MM-DD HH:MI:SS') AS event_end,
+        replace(replace(bel.log_msg1,'[','_'),']','_') as log_msg1, 
+        replace(replace(bel.log_msg2,'[','_'),']','_') as log_msg2, 
+        replace(replace(bel.log_msg3,'[','_'),']','_') AS log_msg3, 
+        bel.bpm_process_id, 
+        bel.bpm_parent_process_id AS bpm_parent_id, 
+        bel.manual_task, 
+        bel.manual_task_id, 
+        bel.manual_task_reason, 
+        bel.server_host_name,
+        mt.id AS trans_id, 
+        mt.external_system AS source, 
+        mt.member_phone, 
+        mt.status AS trans_status, 
+        mt.environment
+    FROM bpm_event_log bel
+    LEFT OUTER JOIN maestro_transactions mt ON bel.MAESTRO_ID = mt.ID
+    WHERE (mt.MEMBER_PHONE = '{phonenumber}' OR substr(bel.log_msg3, 5, 10) = '{phonenumber}')
+    ORDER BY bel.start_time DESC
+    """
+    conn = get_connection(env)
     cursor = conn.cursor()
-    cursor.execute(sql, {"phone": phonenumber})
+    cursor.execute(sql)
     results = cursor.fetchall()
     cursor.close()
     conn.close()
     return results
 
 
-def bpm_cleanup(ticket_ids):
+def bpm_cleanup(ticket_ids, env):
     """Reset BPM event log entries."""
     if not ticket_ids:
         return 0
@@ -127,7 +139,7 @@ UPDATE bpm_event_log
 SET process_status = 'FAILURE', end_time = start_time, log_msg1 = 'Internal provisioning error'
 WHERE ticket_id IN ({}) AND process_status IN ('IN_PROGRESS','RETRY')
 """.format(",".join(["'{}'".format(t) for t in ticket_ids]))
-    conn = get_connection()
+    conn = get_connection(env)
     cursor = conn.cursor()
     cursor.execute(sql)
     rows = cursor.rowcount
@@ -137,7 +149,7 @@ WHERE ticket_id IN ({}) AND process_status IN ('IN_PROGRESS','RETRY')
     return rows
 
 
-def maestro_cleanup(trans_ids):
+def maestro_cleanup(trans_ids, env):
     """Reset maestro transaction entries."""
     if not trans_ids:
         return 0
@@ -146,7 +158,7 @@ UPDATE maestro_transactions
 SET status = 'FAILURE', is_complete = 'Y', message = 'Manual completion', last_modified_date = SYSDATE
 WHERE id IN ({})
 """.format(",".join(["'{}'".format(t) for t in trans_ids]))
-    conn = get_connection()
+    conn = get_connection(env)
     cursor = conn.cursor()
     cursor.execute(sql)
     rows = cursor.rowcount
@@ -164,30 +176,37 @@ def main():
     cmd = sys.argv[1]
 
     if cmd == "query":
-        if len(sys.argv) < 3:
-            print("Usage: python reset_maestro.py query <phonenumber>")
+        if len(sys.argv) < 4:
+            print("Usage: python reset_maestro.py query <phonenumber> <environment>")
             sys.exit(1)
         phonenumber = sys.argv[2]
-        results = query_results(phonenumber)
+        env = sys.argv[3]
+        results = query_results(phonenumber, env)
         for row in results:
             print(row)
 
     elif cmd == "bpm-cleanup":
-        if len(sys.argv) < 3:
-            print("Usage: python reset_maestro.py bpm-cleanup <ticket_ids>")
+        if len(sys.argv) < 4:
+            print(
+                "Usage: python reset_maestro.py bpm-cleanup <ticket_ids> <environment>"
+            )
             sys.exit(1)
         # ticket_ids passed as comma-separated: id1,id2,id3
         ticket_ids = sys.argv[2].split(",")
-        rows = bpm_cleanup(ticket_ids)
+        env = sys.argv[3]
+        rows = bpm_cleanup(ticket_ids, env)
         print(f"Rows updated: {rows}")
 
     elif cmd == "maestro-cleanup":
-        if len(sys.argv) < 3:
-            print("Usage: python reset_maestro.py maestro-cleanup <trans_ids>")
+        if len(sys.argv) < 4:
+            print(
+                "Usage: python reset_maestro.py maestro-cleanup <trans_ids> <environment>"
+            )
             sys.exit(1)
         # trans_ids passed as comma-separated: id1,id2,id3
         trans_ids = sys.argv[2].split(",")
-        rows = maestro_cleanup(trans_ids)
+        env = sys.argv[3]
+        rows = maestro_cleanup(trans_ids, env)
         print(f"Rows updated: {rows}")
 
     else:
