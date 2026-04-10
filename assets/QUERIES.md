@@ -18,7 +18,7 @@ WHERE bel.ticket_id IS NOT NULL
 
 ###bpm cleanup
 UPDATE bpm_event_log SET process_status = 'FAILURE', end_time = start_time, log_msg1 = 'Internal provisioning error'
-WHERE ticket_id in({Ticket_Ids},{phonenumber}) AND process_status IN ('IN_PROGRESS','RETRY');
+WHERE ticket_id in({Ticket_Ids},'{phonenumber}') AND process_status IN ('IN_PROGRESS','RETRY');
 
 ###maestro cleanup:
 UPDATE maestro_transactions SET status= 'FAILURE', is_complete = 'Y', message = 'Manual completion', last_modified_date = SYSDATE

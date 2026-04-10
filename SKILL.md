@@ -17,7 +17,7 @@ Ticket_Ids and Trans_Ids.
 # DATA SOURCE
 Connections = ./agents/skills/reset-stuck-maestro/assets/CONNECTIONS.md - PROD or TLQ depending on user input
 Ticket_Ids = ./agents/skills/reset-stuck-maestro/assets/QUERIES.md Ticket_Id query
-Trans_Ids = ./agents/skills/reset-stuck-maestro/assets/QUERIS.md Trans_id query
+Trans_Ids = ./agents/skills/reset-stuck-maestro/assets/QUERIES.md Trans_id query
 bpm_cleanup = ./agents/skills/reset-stuck-maestro/assets/QUERIES.md bpm cleanup
 maestro_cleanup = ./agents/skills/reset-stuck-maestro/assets/QUERIES.md maestro cleanup
 
@@ -33,6 +33,7 @@ maestro_cleanup = ./agents/skills/reset-stuck-maestro/assets/QUERIES.md maestro 
 
 ### 3. BPM Cleanup Phase
 - Pre-condition: Have Ticket_Ids.
+- Ticket_Ids needs to be a comma separated list surrounded by ''.  (e.g. 12345 23456 becomes '12345,'23456')
 - display to user the exact 'bpm_cleanup' SQL statement to be executed
 - Upon "yes", execute 'bpm_cleanup' query and capture "rows updated" count.
 
